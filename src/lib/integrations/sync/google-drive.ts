@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { decrypt } from '@/lib/utils/encryption';
 import { getGoogleClient } from '../oauth/google';
 import { logger } from '@/lib/utils/logger';
+import { vectorizeDocument } from '@/lib/ai/knowledge-ingestion';
 
 export async function syncGoogleDrive(integrationId: string) {
   try {
@@ -72,7 +73,7 @@ async function processGoogleDriveFile(
     }
     // Add handling for other file types (Sheets, PDFs, etc.)
 
-    await prisma.document.upsert({
+    const document = await prisma.document.upsert({
       where: {
         integrationId_externalId: {
           integrationId,
@@ -101,7 +102,9 @@ async function processGoogleDriveFile(
       },
     });
 
-    logger.info(`Processed Google Drive file: ${file.name}`);
+    await vectorizeDocument(document.id);
+
+    logger.info(`Processed and vectorized Google Drive file: ${file.name}`);
   } catch (error) {
     logger.error(`Error processing file ${file.name}`, error);
   }
