@@ -5,10 +5,15 @@ import {
   ReportSection,
 } from './templates/standard-board-report';
 import { logger } from '@/lib/utils/logger';
+import {
+  assertWithinMonthlyOutputTokenCap,
+  recordOutputTokens,
+} from '@/lib/ai/usage-limits';
 
 export interface ReportRequest {
   companyId: string;
   companyName: string;
+  userId: string;
   format: 'pdf' | 'powerpoint' | 'word' | 'google_slides';
   structure: 'standard' | 'custom';
   focusAreas: string[];
@@ -40,13 +45,14 @@ export async function generateBoardReport(
     const template =
       request.structure === 'standard'
         ? STANDARD_BOARD_REPORT
-        : await buildCustomTemplate(request.customPrompt || '');
+        : await buildCustomTemplate(request.customPrompt || '', request.userId);
 
     const sections = await generateSections(
       template,
       request.companyId,
       request.companyName,
-      request.focusAreas
+      request.focusAreas,
+      request.userId
     );
 
     return {
@@ -68,7 +74,8 @@ async function generateSections(
   template: ReportSection[],
   companyId: string,
   companyName: string,
-  focusAreas: string[]
+  focusAreas: string[],
+  userId: string
 ): Promise<
   Array<{
     title: string;
@@ -105,7 +112,8 @@ async function generateSections(
     const content = await generateSectionContent(
       section,
       companyName,
-      knowledge.results
+      knowledge.results,
+      userId
     );
 
     sections.push({
@@ -124,7 +132,8 @@ async function generateSections(
 async function generateSectionContent(
   section: ReportSection,
   companyName: string,
-  knowledgeResults: any[]
+  knowledgeResults: any[],
+  userId: string
 ): Promise<{
   text: string;
   chartData?: any;
@@ -177,11 +186,13 @@ ${
     : ''
 }`;
 
+  await assertWithinMonthlyOutputTokenCap(userId, 2048);
   const response = await chatCompletion(
     [{ role: 'user', content: prompt }],
     'You are an expert board report writer. Be concise, data-driven, and professional.',
     2048
   );
+  await recordOutputTokens(userId, response.outputTokens);
 
   // Extract chart/table data if present
   let chartData, tableData;
@@ -203,15 +214,19 @@ ${
   }
 
   // Extract text content (remove JSON)
-  const text = response.replace(/\{[\s\S]*\}/, '').trim();
+  const text = response.text.replace(/\{[\s\S]*\}/, '').trim();
 
   return { text, chartData, tableData };
 }
 
-async function buildCustomTemplate(prompt: string): Promise<ReportSection[]> {
+async function buildCustomTemplate(
+  prompt: string,
+  userId: string
+): Promise<ReportSection[]> {
   const systemPrompt = `Create a board report template based on the user's requirements. 
   Provide a JSON array of sections with title, type (text/chart/table), and dataQuery fields.`;
 
+  await assertWithinMonthlyOutputTokenCap(userId, 2048);
   const response = await chatCompletion(
     [
       {
@@ -221,8 +236,9 @@ async function buildCustomTemplate(prompt: string): Promise<ReportSection[]> {
     ],
     systemPrompt
   );
+  await recordOutputTokens(userId, response.outputTokens);
 
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
+  const jsonMatch = response.text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
     throw new Error('Failed to parse custom template');
   }

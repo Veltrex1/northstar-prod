@@ -10,6 +10,18 @@ export function middleware(request: NextRequest) {
   const authToken = request.cookies.get("auth-token")?.value;
 
   if (!isPublicRoute && !authToken) {
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Authentication required",
+          },
+        },
+        { status: 401 }
+      );
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

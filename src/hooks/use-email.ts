@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface EmailDraft {
   id: string;
@@ -12,6 +13,8 @@ export interface EmailDraft {
   createdAt: string;
 }
 
+type EmailProvider = 'GOOGLE_WORKSPACE' | 'MICROSOFT_365';
+
 export function useEmail() {
   const { toast } = useToast();
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
@@ -21,7 +24,7 @@ export function useEmail() {
   const fetchDrafts = useCallback(async () => {
     try {
       const response = await fetch('/api/email/drafts');
-      const data = await response.json();
+      const data = await parseApiResponse<{ drafts: EmailDraft[] }>(response);
 
       if (data.success) {
         setDrafts(data.data.drafts || []);
@@ -35,11 +38,15 @@ export function useEmail() {
     fetchDrafts();
   }, [fetchDrafts]);
 
-  const learnStyle = async () => {
+  const learnStyle = async (platform?: EmailProvider) => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/email/learn', { method: 'POST' });
-      const data = await response.json();
+      const response = await fetch('/api/email/learn', {
+        method: 'POST',
+        headers: platform ? { 'Content-Type': 'application/json' } : undefined,
+        body: platform ? JSON.stringify({ platform }) : undefined,
+      });
+      const data = await parseApiResponse<{ profile: any }>(response);
 
       if (data.success) {
         setStyleProfile(data.data.profile);
@@ -79,7 +86,7 @@ export function useEmail() {
         body: JSON.stringify(params),
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ draft: EmailDraft }>(response);
 
       if (data.success) {
         toast({
@@ -115,7 +122,7 @@ export function useEmail() {
         body: JSON.stringify({ tone }),
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ draft: EmailDraft }>(response);
 
       if (data.success) {
         toast({
@@ -148,7 +155,7 @@ export function useEmail() {
         method: 'DELETE',
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ deleted: boolean }>(response);
 
       if (data.success) {
         toast({

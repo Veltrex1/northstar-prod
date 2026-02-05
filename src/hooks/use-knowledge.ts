@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface Document {
   id: string;
@@ -31,7 +32,7 @@ export function useKnowledge() {
       if (searchQuery) params.append('search', searchQuery);
 
       const response = await fetch(`/api/documents?${params.toString()}`);
-      const data = await response.json();
+      const data = await parseApiResponse<{ documents: Document[] }>(response);
 
       if (data.success) {
         setDocuments(data.data.documents || []);
@@ -53,7 +54,10 @@ export function useKnowledge() {
         method: 'PATCH',
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{
+        documents?: Document[];
+        document?: Document;
+      }>(response);
 
       if (data.success) {
         toast({

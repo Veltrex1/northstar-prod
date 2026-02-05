@@ -8,6 +8,11 @@ import {
   buildKnowledgeContext,
 } from "@/lib/ai/prompts/chat";
 import { prisma } from "@/lib/db/prisma";
+import {
+  assertWithinMonthlyOutputTokenCap,
+  MonthlyTokenLimitError,
+  recordOutputTokens,
+} from "@/lib/ai/usage-limits";
 
 export async function POST(request: NextRequest) {
   const auth = await authenticateRequest(request);
@@ -51,10 +56,12 @@ export async function POST(request: NextRequest) {
       },
     ];
 
+    await assertWithinMonthlyOutputTokenCap(auth.user.userId, 4096);
     const stream = await streamChatCompletion(messages, systemPrompt);
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        let outputTokens = 0;
         for await (const chunk of stream) {
           if (chunk.type === "content_block_delta") {
             const delta = chunk.delta;
@@ -64,6 +71,18 @@ export async function POST(request: NextRequest) {
               );
             }
           }
+          if (
+            chunk.type === "message_delta" &&
+            "usage" in chunk &&
+            chunk.usage?.output_tokens != null
+          ) {
+            outputTokens = chunk.usage.output_tokens;
+          }
+        }
+        try {
+          await recordOutputTokens(auth.user.userId, outputTokens);
+        } catch (error) {
+          console.error("Failed to record output tokens", error);
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
@@ -78,6 +97,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof MonthlyTokenLimitError) {
+      return errorResponse(error.code, error.message, error.status);
+    }
     return errorResponse("STREAM_ERROR", "Failed to stream response", 500);
   }
 }

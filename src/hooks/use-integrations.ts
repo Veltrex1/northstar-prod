@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface Integration {
   id: string;
@@ -26,7 +27,7 @@ export function useIntegrations() {
   const fetchIntegrations = useCallback(async () => {
     try {
       const response = await fetch('/api/integrations');
-      const data = await response.json();
+      const data = await parseApiResponse<{ integrations: Integration[] }>(response);
 
       if (data.success) {
         setIntegrations(data.data.integrations || []);
@@ -50,7 +51,7 @@ export function useIntegrations() {
         body: JSON.stringify({ platform }),
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ authUrl: string }>(response);
 
       if (data.success) {
         window.location.href = data.data.authUrl;
@@ -76,7 +77,7 @@ export function useIntegrations() {
         method: 'POST',
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ synced: boolean }>(response);
 
       if (data.success) {
         toast({
@@ -106,7 +107,7 @@ export function useIntegrations() {
         method: 'DELETE',
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ deleted: boolean }>(response);
 
       if (data.success) {
         toast({

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { authenticateRequest } from '@/lib/auth/middleware';
 import { successResponse, errorResponse } from '@/lib/utils/api-response';
 import { modifyTone } from '@/lib/email/draft-generator';
+import { MonthlyTokenLimitError } from '@/lib/ai/usage-limits';
 import { getEmailStyle } from '@/lib/email/style-analyzer';
 import { prisma } from '@/lib/db/prisma';
 import { z } from 'zod';
@@ -12,17 +13,18 @@ const toneSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await authenticateRequest(request);
   if ('error' in auth) return auth.error;
 
   try {
+    const { id } = await params;
     const body = await request.json();
     const { tone } = toneSchema.parse(body);
 
     const draft = await prisma.emailDraft.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!draft) {
@@ -44,11 +46,12 @@ export async function PATCH(
         body: draft.content,
       },
       style,
-      tone
+      tone,
+      auth.user.userId
     );
 
     const updatedDraft = await prisma.emailDraft.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         subject: modifiedDraft.subject,
         content: modifiedDraft.body,
@@ -65,6 +68,9 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse('VALIDATION_ERROR', error.errors[0].message, 400);
+    }
+    if (error instanceof MonthlyTokenLimitError) {
+      return errorResponse(error.code, error.message, error.status);
     }
     return errorResponse('TONE_ERROR', 'Failed to modify tone', 500);
   }

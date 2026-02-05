@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { authenticateRequest } from '@/lib/auth/middleware';
 import { successResponse, errorResponse } from '@/lib/utils/api-response';
 import { generateEmailDraft } from '@/lib/email/draft-generator';
+import { RateLimitError } from '@/lib/ai/claude-client';
+import { MonthlyTokenLimitError } from '@/lib/ai/usage-limits';
 import { getEmailStyle } from '@/lib/email/style-analyzer';
 import { prisma } from '@/lib/db/prisma';
 import { z } from 'zod';
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
       context: draftRequest.context,
       style,
       tone: draftRequest.tone,
+      userId: auth.user.userId,
     });
 
     const savedDraft = await prisma.emailDraft.create({
@@ -69,6 +72,22 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse('VALIDATION_ERROR', error.errors[0].message, 400);
+    }
+    if (error instanceof MonthlyTokenLimitError) {
+      return errorResponse(error.code, error.message, error.status);
+    }
+    if (error instanceof RateLimitError) {
+      return errorResponse(error.code, error.message, error.status);
+    }
+    if (typeof error === 'object' && error && 'status' in error) {
+      const status = (error as { status?: number }).status;
+      if (status === 429) {
+        return errorResponse(
+          'RATE_LIMIT',
+          'Rate limit reached. Please try again in a few minutes.',
+          429
+        );
+      }
     }
     return errorResponse('DRAFT_ERROR', 'Failed to generate draft', 500);
   }
