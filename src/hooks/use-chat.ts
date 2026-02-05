@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -54,7 +55,11 @@ export function useChat() {
           }),
         });
 
-        const data = await response.json();
+        const data = await parseApiResponse<{
+          response: string;
+          sources?: Message['sources'];
+          conversationId: string;
+        }>(response);
 
         if (data.success) {
           const assistantMessage: Message = {

@@ -1,15 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useEmail } from '@/hooks/use-email';
+import { useIntegrations } from '@/hooks/use-integrations';
 import { DraftEditor } from '@/components/email/draft-editor';
 import { DraftList } from '@/components/email/draft-list';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { PlusCircle, Sparkles, Mail } from 'lucide-react';
 
 export default function EmailPage() {
+  const router = useRouter();
   const {
     drafts,
     isLoading,
@@ -19,10 +29,43 @@ export default function EmailPage() {
     modifyTone,
     deleteDraft,
   } = useEmail();
+  const { integrations } = useIntegrations();
 
   const [selectedDraft, setSelectedDraft] = useState<any>(null);
   const [newEmailPrompt, setNewEmailPrompt] = useState('');
   const [showNewDraft, setShowNewDraft] = useState(false);
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
+
+  const emailProviders = useMemo(
+    () =>
+      integrations.filter(
+        (integration) =>
+          integration.status === 'CONNECTED' &&
+          (integration.platform === 'GOOGLE_WORKSPACE' ||
+            integration.platform === 'MICROSOFT_365')
+      ),
+    [integrations]
+  );
+  const hasEmailProvider = emailProviders.length > 0;
+
+  const handleLearnStyle = () => {
+    if (!hasEmailProvider) {
+      router.push('/settings/integrations');
+      return;
+    }
+
+    if (emailProviders.length === 1) {
+      learnStyle(emailProviders[0].platform as 'GOOGLE_WORKSPACE' | 'MICROSOFT_365');
+      return;
+    }
+
+    setShowProviderDialog(true);
+  };
+
+  const handleProviderChoice = (platform: 'GOOGLE_WORKSPACE' | 'MICROSOFT_365') => {
+    setShowProviderDialog(false);
+    learnStyle(platform);
+  };
 
   const handleGenerateNew = async () => {
     const draft = await generateDraft({
@@ -53,9 +96,9 @@ export default function EmailPage() {
           <p className="text-gray-600">AI-powered email writing</p>
         </div>
         {!styleProfile && (
-          <Button onClick={learnStyle} disabled={isLoading}>
+          <Button onClick={handleLearnStyle} disabled={isLoading}>
             <Sparkles className="w-4 h-4 mr-2" />
-            Learn My Style
+            {hasEmailProvider ? 'Learn My Style' : 'Connect Email Provider'}
           </Button>
         )}
       </div>
@@ -68,8 +111,12 @@ export default function EmailPage() {
             Northstar will analyze your sent emails to learn your writing style,
             then draft emails that sound like you.
           </p>
-          <Button onClick={learnStyle} disabled={isLoading}>
-            {isLoading ? 'Analyzing emails...' : 'Get Started'}
+          <Button onClick={handleLearnStyle} disabled={isLoading}>
+            {hasEmailProvider
+              ? isLoading
+                ? 'Analyzing emails...'
+                : 'Get Started'
+              : 'Connect Email Provider'}
           </Button>
         </Card>
       ) : (
@@ -132,6 +179,34 @@ export default function EmailPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={showProviderDialog} onOpenChange={setShowProviderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choose an email provider</DialogTitle>
+            <DialogDescription>
+              Select which provider to learn your writing style from.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            {emailProviders.map((provider) => (
+              <Button
+                key={provider.id}
+                variant="outline"
+                onClick={() =>
+                  handleProviderChoice(
+                    provider.platform as 'GOOGLE_WORKSPACE' | 'MICROSOFT_365'
+                  )
+                }
+              >
+                {provider.platform === 'GOOGLE_WORKSPACE'
+                  ? 'Google Workspace (Gmail)'
+                  : 'Microsoft 365 (Outlook)'}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

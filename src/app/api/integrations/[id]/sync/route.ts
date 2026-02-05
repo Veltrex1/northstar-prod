@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { authenticateRequest } from '@/lib/auth/middleware';
 import { successResponse, errorResponse } from '@/lib/utils/api-response';
 import { syncGoogleDrive } from '@/lib/integrations/sync/google-drive';
+import { syncMicrosoft365 } from '@/lib/integrations/sync/microsoft-365';
 import { prisma } from '@/lib/db/prisma';
 
 export async function POST(
@@ -29,6 +30,9 @@ export async function POST(
     switch (integration.platform) {
       case 'GOOGLE_WORKSPACE':
         result = await syncGoogleDrive(integration.id);
+        break;
+      case 'MICROSOFT_365':
+        result = await syncMicrosoft365(integration.id);
         break;
       default:
         return errorResponse(

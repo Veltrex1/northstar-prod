@@ -2,8 +2,28 @@ import { google } from 'googleapis';
 import { chatCompletion } from '@/lib/ai/claude-client';
 import { prisma } from '@/lib/db/prisma';
 import { getGoogleClient } from '@/lib/integrations/oauth/google';
+import { getMicrosoftAccessTokenFromIntegration } from '@/lib/integrations/microsoft/credentials';
 import { decrypt } from '@/lib/utils/encryption';
 import { logger } from '@/lib/utils/logger';
+import {
+  assertWithinMonthlyOutputTokenCap,
+  recordOutputTokens,
+} from '@/lib/ai/usage-limits';
+
+export class EmailStyleError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+type EmailPlatform = 'GOOGLE_WORKSPACE' | 'MICROSOFT_365';
+
+const MICROSOFT_GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 
 export interface EmailStyle {
   averageLength: number;
@@ -18,7 +38,10 @@ export interface EmailStyle {
   tonalCharacteristics: string;
 }
 
-export async function analyzeSentEmails(userId: string): Promise<EmailStyle> {
+export async function analyzeSentEmails(
+  userId: string,
+  platform?: EmailPlatform
+): Promise<EmailStyle> {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -26,52 +49,68 @@ export async function analyzeSentEmails(userId: string): Promise<EmailStyle> {
     });
 
     if (!user) {
-      throw new Error('User not found');
+      throw new EmailStyleError('USER_NOT_FOUND', 'User not found', 404);
     }
 
-    const integration = await prisma.integration.findFirst({
+    const integrations = await prisma.integration.findMany({
       where: {
         companyId: user.companyId,
-        platform: 'GOOGLE_WORKSPACE',
+        platform: { in: ['GOOGLE_WORKSPACE', 'MICROSOFT_365'] },
+        status: 'CONNECTED',
       },
     });
 
-    if (!integration) {
-      throw new Error('Google Workspace not connected');
-    }
+    let selectedPlatform = platform;
 
-    const credentials = JSON.parse(decrypt(integration.credentials));
-    const authClient = getGoogleClient(credentials.accessToken, credentials.refreshToken);
-
-    const gmail = google.gmail({ version: 'v1', auth: authClient });
-
-    const sentMessages = await gmail.users.messages.list({
-      userId: 'me',
-      q: 'in:sent',
-      maxResults: 50,
-    });
-
-    if (!sentMessages.data.messages || sentMessages.data.messages.length === 0) {
-      throw new Error('No sent emails found');
-    }
-
-    const emails: string[] = [];
-    for (const message of sentMessages.data.messages.slice(0, 50)) {
-      const fullMessage = await gmail.users.messages.get({
-        userId: 'me',
-        id: message.id!,
-        format: 'full',
-      });
-
-      const body = extractEmailBody(fullMessage.data);
-      if (body && body.length > 50) {
-        emails.push(body);
+    if (!selectedPlatform) {
+      if (integrations.length === 0) {
+        throw new EmailStyleError(
+          'EMAIL_PROVIDER_NOT_CONNECTED',
+          'No email provider connected',
+          400
+        );
       }
+
+      if (integrations.length > 1) {
+        throw new EmailStyleError(
+          'MULTIPLE_EMAIL_PROVIDERS',
+          'Multiple email providers connected',
+          400
+        );
+      }
+
+      selectedPlatform = integrations[0].platform as EmailPlatform;
+    }
+
+    const integration = integrations.find(
+      (item) => item.platform === selectedPlatform
+    );
+
+    if (!integration) {
+      throw new EmailStyleError(
+        selectedPlatform === 'GOOGLE_WORKSPACE'
+          ? 'GOOGLE_WORKSPACE_NOT_CONNECTED'
+          : 'MICROSOFT_365_NOT_CONNECTED',
+        selectedPlatform === 'GOOGLE_WORKSPACE'
+          ? 'Google Workspace not connected'
+          : 'Microsoft 365 not connected',
+        400
+      );
+    }
+
+    const emails =
+      selectedPlatform === 'GOOGLE_WORKSPACE'
+        ? await getGmailSentEmails(integration.credentials)
+        : await getMicrosoftSentEmails(integration);
+
+    if (emails.length === 0) {
+      throw new EmailStyleError('NO_SENT_EMAILS', 'No sent emails found', 404);
     }
 
     logger.info(`Analyzing ${emails.length} sent emails for user ${userId}`);
 
-    const styleAnalysis = await analyzeWritingStyleWithAI(emails);
+    await assertWithinMonthlyOutputTokenCap(userId, 4096);
+    const styleAnalysis = await analyzeWritingStyleWithAI(emails, userId);
 
     await prisma.user.update({
       where: { id: userId },
@@ -89,7 +128,7 @@ export async function analyzeSentEmails(userId: string): Promise<EmailStyle> {
   }
 }
 
-function extractEmailBody(message: any): string {
+function extractGmailEmailBody(message: any): string {
   try {
     let body = '';
 
@@ -114,7 +153,97 @@ function extractEmailBody(message: any): string {
   }
 }
 
-async function analyzeWritingStyleWithAI(emails: string[]): Promise<EmailStyle> {
+async function getGmailSentEmails(credentialsJson: string): Promise<string[]> {
+  const credentials = JSON.parse(decrypt(credentialsJson));
+  const authClient = getGoogleClient(credentials.accessToken, credentials.refreshToken);
+  const gmail = google.gmail({ version: 'v1', auth: authClient });
+
+  const sentMessages = await gmail.users.messages.list({
+    userId: 'me',
+    q: 'in:sent',
+    maxResults: 50,
+  });
+
+  const messages = sentMessages.data.messages || [];
+  const emails: string[] = [];
+
+  for (const message of messages.slice(0, 50)) {
+    const fullMessage = await gmail.users.messages.get({
+      userId: 'me',
+      id: message.id!,
+      format: 'full',
+    });
+
+    const body = extractGmailEmailBody(fullMessage.data);
+    if (body && body.length > 50) {
+      emails.push(body);
+    }
+  }
+
+  return emails;
+}
+
+type MicrosoftMessage = {
+  body?: { contentType?: string; content?: string };
+  bodyPreview?: string;
+};
+
+async function getMicrosoftSentEmails(integration: {
+  id: string;
+  credentials: string;
+}): Promise<string[]> {
+  const { accessToken } = await getMicrosoftAccessTokenFromIntegration(
+    integration
+  );
+
+  const response = await fetch(
+    `${MICROSOFT_GRAPH_BASE_URL}/me/mailFolders/SentItems/messages?$top=50&$select=body,bodyPreview`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new EmailStyleError(
+      'MICROSOFT_GRAPH_ERROR',
+      'Failed to read Microsoft 365 sent emails',
+      502
+    );
+  }
+
+  const data = (await response.json()) as { value?: MicrosoftMessage[] };
+  const messages = data.value || [];
+
+  const emails: string[] = [];
+  for (const message of messages) {
+    const body = extractMicrosoftEmailBody(message);
+    if (body && body.length > 50) {
+      emails.push(body);
+    }
+  }
+
+  return emails;
+}
+
+function extractMicrosoftEmailBody(message: MicrosoftMessage): string {
+  const contentType = message.body?.contentType?.toLowerCase();
+  const content = message.body?.content || '';
+  const raw =
+    contentType === 'html' ? stripHtml(content) : content || message.bodyPreview || '';
+
+  return raw.trim();
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function analyzeWritingStyleWithAI(
+  emails: string[],
+  userId: string
+): Promise<EmailStyle> {
   const prompt = `Analyze the following ${emails.length} email samples and provide a detailed writing style profile.
 
 Emails:
@@ -141,8 +270,9 @@ Respond ONLY with valid JSON, no other text.`;
     'You are an expert writing style analyzer. Provide detailed, accurate analysis.',
     4096
   );
+  await recordOutputTokens(userId, response.outputTokens);
 
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  const jsonMatch = response.text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error('Failed to parse style analysis response');
   }

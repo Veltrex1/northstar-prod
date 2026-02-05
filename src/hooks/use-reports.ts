@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface BoardReport {
   id: string;
@@ -20,7 +21,7 @@ export function useReports() {
   const fetchReports = useCallback(async () => {
     try {
       const response = await fetch('/api/reports');
-      const data = await response.json();
+      const data = await parseApiResponse<{ reports: BoardReport[] }>(response);
 
       if (data.success) {
         setReports(data.data.reports || []);
@@ -48,7 +49,7 @@ export function useReports() {
         body: JSON.stringify(params),
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ report: BoardReport }>(response);
 
       if (data.success) {
         toast({
@@ -81,7 +82,7 @@ export function useReports() {
         method: 'DELETE',
       });
 
-      const data = await response.json();
+      const data = await parseApiResponse<{ deleted: boolean }>(response);
 
       if (data.success) {
         toast({

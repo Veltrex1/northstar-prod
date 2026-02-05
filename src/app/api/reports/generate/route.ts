@@ -6,6 +6,7 @@ import { exportToPDF } from '@/lib/reports/exporters/pdf-exporter';
 import { exportToPowerPoint } from '@/lib/reports/exporters/pptx-exporter';
 import { exportToWord } from '@/lib/reports/exporters/docx-exporter';
 import { prisma } from '@/lib/db/prisma';
+import { MonthlyTokenLimitError } from '@/lib/ai/usage-limits';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
     const reportContent = await generateBoardReport({
       companyId: auth.user.companyId,
       companyName: company.name,
+      userId: auth.user.userId,
       format,
       structure,
       focusAreas,
@@ -98,6 +100,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse('VALIDATION_ERROR', error.errors[0].message, 400);
+    }
+    if (error instanceof MonthlyTokenLimitError) {
+      return errorResponse(error.code, error.message, error.status);
     }
     return errorResponse('GENERATE_ERROR', 'Failed to generate report', 500);
   }

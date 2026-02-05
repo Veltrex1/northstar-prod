@@ -6,6 +6,10 @@ import {
   buildClarificationPrompt,
 } from "./prompts/chat";
 import { logger } from "@/lib/utils/logger";
+import {
+  assertWithinMonthlyOutputTokenCap,
+  recordOutputTokens,
+} from "@/lib/ai/usage-limits";
 
 export interface ChatRequest {
   message: string;
@@ -17,6 +21,7 @@ export interface ChatRequest {
   companyId: string;
   companyName: string;
   userName: string;
+  userId: string;
 }
 
 export interface ChatResponse {
@@ -107,11 +112,13 @@ export async function handleChatMessage(
       content: userMessage,
     });
 
+    await assertWithinMonthlyOutputTokenCap(request.userId, 4096);
     const response = await chatCompletion(messages, systemPrompt);
+    await recordOutputTokens(request.userId, response.outputTokens);
     const suggestedQueries = generateSuggestedQueries(request.message);
 
     return {
-      response,
+      response: response.text,
       sources,
       needsClarification: false,
       thinkingProcess: request.useSecondBrain

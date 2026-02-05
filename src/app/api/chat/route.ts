@@ -3,6 +3,7 @@ import { authenticateRequest } from "@/lib/auth/middleware";
 import { successResponse, errorResponse } from "@/lib/utils/api-response";
 import { handleChatMessage } from "@/lib/ai/chat-handler";
 import { prisma } from "@/lib/db/prisma";
+import { MonthlyTokenLimitError } from "@/lib/ai/usage-limits";
 import { z } from "zod";
 
 const chatSchema = z.object({
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
       companyId: auth.user.companyId,
       companyName: company.name,
       userName: auth.user.name,
+      userId: auth.user.userId,
     });
 
     const updatedMessages = [
@@ -91,6 +93,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse("VALIDATION_ERROR", error.errors[0].message, 400);
+    }
+    if (error instanceof MonthlyTokenLimitError) {
+      return errorResponse(error.code, error.message, error.status);
     }
     return errorResponse("CHAT_ERROR", "Failed to process chat message", 500);
   }

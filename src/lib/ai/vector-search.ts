@@ -2,12 +2,25 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import { generateEmbedding } from './embeddings';
 import { logger } from '@/lib/utils/logger';
 
+const controllerHostUrl =
+  process.env.PINECONE_CONTROLLER_HOST_URL ||
+  (process.env.PINECONE_ENVIRONMENT
+    ? `https://controller.${process.env.PINECONE_ENVIRONMENT}.pinecone.io`
+    : undefined);
+
+if (!controllerHostUrl) {
+  throw new Error(
+    "Missing Pinecone controller host URL. Set PINECONE_CONTROLLER_HOST_URL (recommended) or PINECONE_ENVIRONMENT."
+  );
+}
+
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY!,
-  environment: process.env.PINECONE_ENVIRONMENT!,
+  controllerHostUrl,
 });
 
 const indexName = process.env.PINECONE_INDEX || 'northstar-knowledge';
+let cachedIndexHost: string | undefined;
 
 export async function initializePineconeIndex() {
   try {
@@ -34,8 +47,34 @@ export async function initializePineconeIndex() {
   }
 }
 
+async function resolveIndexHost(): Promise<string | undefined> {
+  if (cachedIndexHost) return cachedIndexHost;
+
+  const indexHost = process.env.PINECONE_INDEX_HOST;
+  if (indexHost) {
+    cachedIndexHost = indexHost;
+    return indexHost;
+  }
+
+  if (typeof pinecone.describeIndex === "function") {
+    const description = await pinecone.describeIndex(indexName);
+    const host =
+      (description as { host?: string }).host ||
+      (description as { status?: { host?: string } }).status?.host ||
+      (description as { database?: { host?: string } }).database?.host;
+
+    if (host) {
+      cachedIndexHost = host;
+      return host;
+    }
+  }
+
+  return undefined;
+}
+
 export async function getIndex() {
-  return pinecone.index(indexName);
+  const indexHost = await resolveIndexHost();
+  return indexHost ? pinecone.index(indexName, indexHost) : pinecone.index(indexName);
 }
 
 export interface VectorSearchResult {

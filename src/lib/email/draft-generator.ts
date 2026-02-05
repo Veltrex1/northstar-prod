@@ -1,6 +1,10 @@
 import { chatCompletion } from '@/lib/ai/claude-client';
 import { EmailStyle } from './style-analyzer';
 import { logger } from '@/lib/utils/logger';
+import {
+  assertWithinMonthlyOutputTokenCap,
+  recordOutputTokens,
+} from '@/lib/ai/usage-limits';
 
 export interface DraftRequest {
   type: 'reply' | 'new';
@@ -14,6 +18,7 @@ export interface DraftRequest {
   context?: string;
   style: EmailStyle;
   tone?: 'friendly' | 'professional' | 'concise' | 'detailed' | 'persuasive' | 'urgent';
+  userId: string;
 }
 
 export interface EmailDraft {
@@ -28,13 +33,15 @@ export async function generateEmailDraft(request: DraftRequest): Promise<EmailDr
     const systemPrompt = buildEmailSystemPrompt(request.style, request.tone);
     const userPrompt = buildEmailUserPrompt(request);
 
+    await assertWithinMonthlyOutputTokenCap(request.userId, 2048);
     const response = await chatCompletion(
       [{ role: 'user', content: userPrompt }],
       systemPrompt,
       2048
     );
+    await recordOutputTokens(request.userId, response.outputTokens);
 
-    const draft = parseEmailDraft(response);
+    const draft = parseEmailDraft(response.text);
 
     return draft;
   } catch (error) {
@@ -146,7 +153,8 @@ function parseEmailDraft(response: string): EmailDraft {
 export async function modifyTone(
   originalDraft: EmailDraft,
   style: EmailStyle,
-  newTone: 'friendly' | 'professional' | 'concise' | 'detailed' | 'persuasive' | 'urgent'
+  newTone: 'friendly' | 'professional' | 'concise' | 'detailed' | 'persuasive' | 'urgent',
+  userId: string
 ): Promise<EmailDraft> {
   const systemPrompt = buildEmailSystemPrompt(style, newTone);
   const userPrompt = `Rewrite this email with the specified tone adjustment:
@@ -157,11 +165,13 @@ ${originalDraft.body}
 
 Keep the same core message but adjust the tone as specified.`;
 
+  await assertWithinMonthlyOutputTokenCap(userId, 2048);
   const response = await chatCompletion(
     [{ role: 'user', content: userPrompt }],
     systemPrompt,
     2048
   );
+  await recordOutputTokens(userId, response.outputTokens);
 
-  return parseEmailDraft(response);
+  return parseEmailDraft(response.text);
 }

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { authenticateRequest } from '@/lib/auth/middleware';
 import { successResponse, errorResponse } from '@/lib/utils/api-response';
 import { getGoogleAuthUrl } from '@/lib/integrations/oauth/google';
+import { getMicrosoftAuthUrl } from '@/lib/integrations/oauth/microsoft';
+import { getSlackAuthUrl } from '@/lib/integrations/oauth/slack';
 import { redis } from '@/lib/cache/redis';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -35,6 +37,12 @@ export async function POST(request: NextRequest) {
     switch (platform) {
       case 'GOOGLE_WORKSPACE':
         authUrl = `${getGoogleAuthUrl()}&state=${stateToken}`;
+        break;
+      case 'MICROSOFT_365':
+        authUrl = getMicrosoftAuthUrl(stateToken);
+        break;
+      case 'SLACK':
+        authUrl = getSlackAuthUrl(stateToken);
         break;
       default:
         return errorResponse('UNSUPPORTED_PLATFORM', 'Platform not yet supported', 400);

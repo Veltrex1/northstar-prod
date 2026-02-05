@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { parseApiResponse } from '@/lib/utils/api-client';
 
 export interface User {
   id: string;
@@ -28,7 +29,7 @@ export function useAuth() {
   const fetchUser = async () => {
     try {
       const response = await fetch('/api/auth/me');
-      const data = await response.json();
+      const data = await parseApiResponse<{ user: User }>(response);
 
       if (data.success) {
         setUser(data.data.user);
