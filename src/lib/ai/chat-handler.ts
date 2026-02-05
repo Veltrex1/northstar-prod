@@ -98,9 +98,8 @@ export async function handleChatMessage(
     }
 
     const systemPrompt = buildSystemPrompt(request.companyName, request.userName);
-    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-      ...(request.conversationHistory || []),
-    ];
+    const messages: Array<{ role: "user" | "assistant"; content: string }> =
+      sanitizeConversationHistory(request.conversationHistory);
 
     const userMessage =
       request.useSecondBrain && knowledgeContext
@@ -130,6 +129,25 @@ export async function handleChatMessage(
     logger.error("Chat handler error", error);
     throw error;
   }
+}
+
+function sanitizeConversationHistory(
+  history?: ChatRequest["conversationHistory"]
+): Array<{ role: "user" | "assistant"; content: string }> {
+  if (!history) {
+    return [];
+  }
+
+  return history
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }))
+    .filter(
+      (message) =>
+        (message.role === "user" || message.role === "assistant") &&
+        message.content.trim().length > 0
+    );
 }
 
 function generateSuggestedQueries(originalQuery: string): string[] {
