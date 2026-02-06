@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db/prisma';
 import { google } from 'googleapis';
 import { getGoogleClient } from '@/lib/integrations/oauth/google';
 import { decrypt } from '@/lib/utils/encryption';
+import { events, trackEvent } from '@/lib/analytics/events';
 
 export async function POST(
   request: NextRequest,
@@ -73,6 +74,12 @@ export async function POST(
     await prisma.emailDraft.update({
       where: { id: params.id },
       data: { status: 'SENT' },
+    });
+
+    trackEvent(events.EMAIL_DRAFT_SENT, {
+      userId: auth.user.userId,
+      companyId: user!.companyId,
+      draftId: draft.id,
     });
 
     return successResponse({ message: 'Email sent successfully' });

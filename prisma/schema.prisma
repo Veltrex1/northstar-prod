@@ -20,26 +20,43 @@ model Company {
   knowledgeEntries KnowledgeEntry[]
   conversations    Conversation[]
   boardReports     BoardReport[]
+  emails           Email[]
+  calendarEvents   CalendarEvent[]
+  dailyDigests     DailyDigest[]
+  followUps        FollowUp[]
+  memories         ConversationMemory[]
+  contacts         Contact[]
 
   @@map("companies")
 }
 
 model User {
-  id                String   @id @default(uuid())
-  email             String   @unique
-  name              String
-  passwordHash      String?
-  role              UserRole @default(CSUITE)
-  companyId         String
-  emailStyleProfile Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  name                  String
+  passwordHash          String?
+  role                  UserRole  @default(CSUITE)
+  companyId             String
+  emailStyleProfile     Json?
+  personalityProfile    Json?
+  voiceProfile          Json?
+  nickname              String?
+  onboardingCompleted   Boolean   @default(false)
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  company            Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  conversations      Conversation[]
-  emailDrafts        EmailDraft[]
-  boardReports       BoardReport[]
-  monthlyTokenUsage  UserMonthlyUsage[]
+  company           Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
+  emailDrafts       EmailDraft[]
+  emails            Email[]
+  boardReports      BoardReport[]
+  monthlyTokenUsage UserMonthlyUsage[]
+  calendarEvents    CalendarEvent[]
+  dailyDigests      DailyDigest[]
+  followUps         FollowUp[]
+  memories          ConversationMemory[]
+  contacts          Contact[]
 
   @@index([companyId])
   @@index([email])
@@ -77,6 +94,7 @@ model Integration {
   lastSyncAt    DateTime?
   syncFrequency String            @default("realtime")
   metadata      Json?
+  syncSettings  Json?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -93,12 +111,10 @@ enum Platform {
   GOOGLE_WORKSPACE
   MICROSOFT_365
   SLACK
-  GMAIL
-  OUTLOOK
   SALESFORCE
-  HUBSPOT
   QUICKBOOKS
-  XERO
+  GOOGLE_CALENDAR
+  MICROSOFT_CALENDAR
 }
 
 enum IntegrationStatus {
@@ -106,6 +122,61 @@ enum IntegrationStatus {
   SYNCING
   ERROR
   DISCONNECTED
+}
+
+enum CalendarProvider {
+  GOOGLE
+  MICROSOFT
+}
+
+enum EventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+model CalendarEvent {
+  id          String           @id @default(uuid())
+  companyId   String
+  userId      String
+  eventId     String           @unique
+  provider    CalendarProvider
+  title       String
+  description String?          @db.Text
+  startTime   DateTime
+  endTime     DateTime
+  attendees   String[]
+  location    String?
+  meetingUrl  String?
+  status      EventStatus      @default(CONFIRMED)
+  briefId     String?          @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brief        MeetingBrief?        @relation("CalendarEventBrief", fields: [briefId], references: [id])
+  meetingBrief MeetingBrief?        @relation("MeetingBriefEvent")
+  interactions ContactInteraction[]
+
+  @@map("calendar_events")
+}
+
+model MeetingBrief {
+  id              String    @id @default(uuid())
+  eventId         String    @unique
+  content         String    @db.Text
+  attendeeContext Json
+  talkingPoints   String[]
+  questions       String[]
+  relevantDocs    Json
+  generatedAt     DateTime  @default(now())
+  viewedAt        DateTime?
+
+  event              CalendarEvent  @relation("MeetingBriefEvent", fields: [eventId], references: [id], onDelete: Cascade)
+  calendarEventBrief CalendarEvent? @relation("CalendarEventBrief")
+
+  @@map("meeting_briefs")
 }
 
 model Document {
@@ -173,8 +244,10 @@ model Conversation {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  followUps FollowUp[]
+  memories  ConversationMemory[]
 
   @@index([companyId])
   @@index([userId])
@@ -182,20 +255,89 @@ model Conversation {
   @@map("conversations")
 }
 
-model EmailDraft {
-  id            String      @id @default(uuid())
-  userId        String
-  threadId      String?
-  subject       String?
-  content       String      @db.Text
-  tone          String?
-  status        DraftStatus @default(DRAFT)
-  originalEmail Json?
-  metadata      Json?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+model DailyDigest {
+  id          String    @id @default(uuid())
+  userId      String
+  companyId   String
+  date        DateTime
+  content     Json
+  createdAt   DateTime  @default(now())
+  viewedAt    DateTime?
+  dismissedAt DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("daily_digests")
+}
+
+model FollowUp {
+  id             String    @id @default(uuid())
+  userId         String
+  companyId      String
+  conversationId String
+  title          String
+  content        String    @db.Text
+  scheduledFor   DateTime
+  completed      Boolean   @default(false)
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("follow_ups")
+}
+
+model ConversationMemory {
+  id             String     @id @default(uuid())
+  userId         String
+  companyId      String
+  conversationId String?
+  type           MemoryType
+  title          String
+  content        String     @db.Text
+  metadata       Json?
+  createdAt      DateTime   @default(now())
+  lastAccessed   DateTime   @default(now()) @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@map("conversation_memories")
+}
+
+enum MemoryType {
+  GOAL
+  DECISION
+  CHALLENGE
+  PATTERN
+  RELATIONSHIP
+  PREFERENCE
+}
+
+model EmailDraft {
+  id              String      @id @default(uuid())
+  userId          String
+  emailId         String?     @unique
+  threadId        String?
+  subject         String?
+  content         String      @db.Text
+  tone            String?
+  status          DraftStatus @default(DRAFT)
+  originalEmail   Json?
+  metadata        Json?
+  isAutoGenerated Boolean     @default(false)
+  generatedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email        Email? @relation("EmailDraftEmailLink", fields: [emailId], references: [id], onDelete: SetNull)
+  draftedEmail Email? @relation("EmailDraftLink")
 
   @@index([userId])
   @@index([status])
@@ -203,10 +345,127 @@ model EmailDraft {
   @@map("email_drafts")
 }
 
+model Email {
+  id         String        @id @default(uuid())
+  companyId  String
+  userId     String
+  messageId  String        @unique
+  threadId   String
+  from       String
+  to         String[]
+  cc         String[]
+  subject    String
+  body       String        @db.Text
+  snippet    String
+  receivedAt DateTime
+  priority   EmailPriority @default(NORMAL)
+  status     EmailStatus   @default(UNREAD)
+  isExternal Boolean       @default(true)
+  draftId    String?       @unique
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draft        EmailDraft?          @relation("EmailDraftLink", fields: [draftId], references: [id], onDelete: SetNull)
+  draftFrom    EmailDraft?          @relation("EmailDraftEmailLink")
+  interactions ContactInteraction[]
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([threadId])
+  @@index([receivedAt])
+  @@index([status])
+  @@map("emails")
+}
+
 enum DraftStatus {
   DRAFT
   SENT
   REVISED
+}
+
+enum EmailPriority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum EmailStatus {
+  UNREAD
+  DRAFT_READY
+  RESPONDED
+  ARCHIVED
+  SNOOZED
+  DELETED
+}
+
+model Contact {
+  id            String          @id @default(uuid())
+  userId        String
+  companyId     String
+  email         String
+  name          String
+  company       String?
+  title         String?
+  category      ContactCategory @default(OTHER)
+  vipStatus     Boolean         @default(false)
+  notes         String?         @db.Text
+  metadata      Json?
+  lastContactAt DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyModel Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  interactions ContactInteraction[]
+
+  @@unique([userId, email])
+  @@index([companyId])
+  @@map("contacts")
+}
+
+model ContactInteraction {
+  id        String          @id @default(uuid())
+  contactId String
+  type      InteractionType
+  subject   String?
+  summary   String?         @db.Text
+  emailId   String?
+  eventId   String?
+  timestamp DateTime
+  metadata  Json?
+  createdAt DateTime        @default(now())
+
+  contact Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  email   Email?         @relation(fields: [emailId], references: [id], onDelete: SetNull)
+  event   CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+  @@index([emailId])
+  @@index([eventId])
+  @@map("contact_interactions")
+}
+
+enum ContactCategory {
+  INVESTOR
+  BOARD_MEMBER
+  CUSTOMER
+  PARTNER
+  TEAM
+  ADVISOR
+  VENDOR
+  OTHER
+}
+
+enum InteractionType {
+  EMAIL_SENT
+  EMAIL_RECEIVED
+  MEETING
+  CALL
+  NOTE
 }
 
 model BoardReport {
