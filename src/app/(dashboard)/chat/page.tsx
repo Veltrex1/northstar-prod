@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChat } from '@/hooks/use-chat';
 import { useAuth } from '@/hooks/use-auth';
 import { parseApiResponse } from '@/lib/utils/api-client';
@@ -19,6 +19,7 @@ type DailyDigestRecord = {
 export default function ChatPage() {
   const { messages, isAIThinking, isSubmitting, sendMessage, input, setInput } =
     useChat();
+  const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [digest, setDigest] = useState<DailyDigestRecord | null>(null);
   const [isDigestLoading, setIsDigestLoading] = useState(true);
