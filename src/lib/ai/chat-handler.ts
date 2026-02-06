@@ -22,6 +22,8 @@ export interface ChatRequest {
   companyName: string;
   userName: string;
   userId: string;
+  systemPrompt?: string;
+  contextMessage?: string;
 }
 
 export interface ChatResponse {
@@ -97,14 +99,20 @@ export async function handleChatMessage(
       }
     }
 
-    const systemPrompt = buildSystemPrompt(request.companyName, request.userName);
+    const systemPrompt =
+      request.systemPrompt ??
+      buildSystemPrompt(request.companyName, request.userName);
     const messages: Array<{ role: "user" | "assistant"; content: string }> =
       sanitizeConversationHistory(request.conversationHistory);
 
+    const contextPrefix =
+      request.contextMessage && request.contextMessage.trim().length > 0
+        ? `PERSONAL CONTEXT:\n${request.contextMessage.trim()}\n\n`
+        : "";
     const userMessage =
       request.useSecondBrain && knowledgeContext
-        ? `${knowledgeContext}\n\nUser's question: ${request.message}`
-        : request.message;
+        ? `${contextPrefix}${knowledgeContext}\n\nUser's question: ${request.message}`
+        : `${contextPrefix}${request.message}`;
 
     messages.push({
       role: "user",

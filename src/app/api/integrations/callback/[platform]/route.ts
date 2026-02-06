@@ -4,6 +4,7 @@ import { getMicrosoftTokens } from '@/lib/integrations/oauth/microsoft';
 import { encrypt } from '@/lib/utils/encryption';
 import { redis } from '@/lib/cache/redis';
 import { logger } from '@/lib/utils/logger';
+import { events, trackEvent } from '@/lib/analytics/events';
 
 const PLATFORM_MAP: Record<string, 'MICROSOFT_365'> = {
   microsoft: 'MICROSOFT_365',
@@ -95,6 +96,11 @@ export async function GET(
     await redis.del(`oauth:state:${state}`);
 
     logger.info('Microsoft 365 connected successfully', { companyId });
+    trackEvent(events.INTEGRATION_CONNECTED, {
+      userId,
+      companyId,
+      platform,
+    });
 
     return Response.redirect(
       new URL('/settings/integrations?success=true', getAppBaseUrl(request)).toString(),

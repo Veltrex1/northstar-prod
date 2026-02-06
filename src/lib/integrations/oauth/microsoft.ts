@@ -16,6 +16,7 @@ const DEFAULT_SCOPES = [
   'Files.Read',
   'Mail.Read',
   'Calendars.Read',
+  'Calendars.ReadWrite',
   'Sites.Read.All',
 ];
 
