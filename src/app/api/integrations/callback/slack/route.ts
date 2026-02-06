@@ -4,6 +4,7 @@ import { getSlackTokens } from '@/lib/integrations/oauth/slack';
 import { encrypt } from '@/lib/utils/encryption';
 import { redis } from '@/lib/cache/redis';
 import { logger } from '@/lib/utils/logger';
+import { events, trackEvent } from '@/lib/analytics/events';
 
 export async function GET(request: NextRequest) {
   try {
@@ -91,6 +92,11 @@ export async function GET(request: NextRequest) {
     await redis.del(`oauth:state:${state}`);
 
     logger.info('Slack connected successfully', { companyId });
+    trackEvent(events.INTEGRATION_CONNECTED, {
+      userId,
+      companyId,
+      platform: 'SLACK',
+    });
 
     return Response.redirect(
       `${process.env.NEXT_PUBLIC_APP_URL}/settings/integrations?success=true`,

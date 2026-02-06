@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: user.role,
         companyId: user.companyId,
+        onboardingCompleted: user.onboardingCompleted,
         company: {
           id: user.company.id,
           name: user.company.name,

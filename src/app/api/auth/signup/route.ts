@@ -4,6 +4,7 @@ import { successResponse, errorResponse } from "@/lib/utils/api-response";
 import { hash } from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
+import { events, trackEvent } from "@/lib/analytics/events";
 
 const signupSchema = z.object({
   name: z.string().min(2),
@@ -74,6 +75,12 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7,
+    });
+
+    trackEvent(events.USER_SIGNUP, {
+      userId: result.user.id,
+      companyId: result.company.id,
+      email: result.user.email,
     });
 
     return response;

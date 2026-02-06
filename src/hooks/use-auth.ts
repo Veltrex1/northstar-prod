@@ -10,6 +10,7 @@ export interface User {
   email: string;
   role: string;
   companyId: string;
+  onboardingCompleted: boolean;
   company: {
     id: string;
     name: string;

@@ -8,14 +8,18 @@ import {
   MessageSquare,
   FileText,
   Mail,
+  Calendar,
+  Users,
   Database,
   Settings,
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Chat', href: '/chat', icon: MessageSquare },
+  { name: 'Email Queue', href: '/email/queue', icon: Mail },
+  { name: 'Meetings', href: '/meetings', icon: Calendar },
+  { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Reports', href: '/reports', icon: FileText },
-  { name: 'Email', href: '/email', icon: Mail },
   { name: 'Knowledge', href: '/knowledge', icon: Database },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
